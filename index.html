@@ -1,0 +1,137 @@
+<title>Screenshot Trim</title>
+<body>
+  <div>Drop or Paste Screenshot</div>
+<style>
+img{opacity: 0.5}
+body.dragover{background: silver}
+</style>
+<script>
+document.body.addEventListener('dragover', event => {
+  document.body.classList.add('dragover')
+  event.preventDefault()
+})
+document.body.addEventListener('dragleave', event => {
+  document.body.classList.remove('dragover')
+  event.preventDefault()
+})
+
+document.addEventListener('paste', event => {
+  event.preventDefault()
+  const { clipboardData } = event
+  if (!clipboardData) return
+  for (const item of [...clipboardData.items]) {
+    if (item.kind === 'file') processFile(item.getAsFile())
+  }
+})
+
+document.body.addEventListener('drop', event => {
+  document.body.classList.remove('dragover')
+  event.preventDefault()
+  for (const item of [...event.dataTransfer.items]) {
+    if (item.kind === 'file') processFile(item.getAsFile())
+  }
+})
+
+function processFile(file) {
+  const url = URL.createObjectURL(file)
+  const img = new Image()
+  img.src = url
+  img.decode().then(() => {
+    URL.revokeObjectURL(url)
+    convert(img, 4)
+  })
+  document.body.appendChild(img)
+}
+
+function convert(img, offset = 0) {
+  const canvas = document.createElement('canvas')
+  const { width, height } = img
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  ctx.drawImage(img, 0, 0)
+  const imgdata = ctx.getImageData(0, 0, width, height)
+  const imgdata2 = ctx.getImageData(0, 0, width, height)
+  const data = imgdata.data
+  let cnt = 0
+  function dataIndex(x, y) {
+    return ((y < 0 ? 0 : y >= height ? height - 1 : y) * width + (x < 0 ? 0 : x >= width ? width - 1 : x)) * 4
+  }
+  const zeroAlpha = new Map()
+  function prepare(x, y, data) {
+    const idx = dataIndex(x, y)
+    for (let ix = -1; ix <= 1; ix++) {
+      for (let iy = -1; iy <= 1; iy++) {
+        const idx2 = dataIndex(x + ix, y + iy)
+        if (data[idx2 + 3] === 0xff) return
+      }
+    }
+    zeroAlpha.set(idx, data[idx + 3])
+  }
+  function set(x, y, data, data2) {
+    const idx = dataIndex(x, y)
+    let dist = 9999
+    let c0 = 0, c1 = 0, c2 = 0, n = 0
+    const as = []
+    let a0sum = 0
+    let a0cnt = 0
+    for (let ix = -1; ix <= 1; ix++) {
+      for (let iy = -1; iy <= 1; iy++) {
+        const d = ix ** 2 + iy ** 2
+        const idx2 = dataIndex(x + ix, y + iy)
+        if (zeroAlpha.has(idx2)) {
+          a0sum += zeroAlpha.get(idx2)
+          a0cnt += 1
+        }
+        const a = data[idx2 + 3]
+        as.push(a)
+        if (d > dist || a !== 0xff) continue
+        if (dist > d) { c0 = c1 = c2 = n = 0}
+        n += 1
+        c0 += data[idx2]
+        c1 += data[idx2 + 1]
+        c2 += data[idx2 + 2]
+      }
+    }
+    const a0 = a0cnt === 0 ? 0 : a0sum / a0cnt
+    if (n === 0) {
+      data2[idx] = 0
+      data2[idx + 1] = 0
+      data2[idx + 2] = 0
+      data2[idx + 3] = 0
+    } else {
+      as.sort((a, b) => a - b)
+      data2[idx] = c0 / n
+      data2[idx + 1] = c1 / n
+      data2[idx + 2] = c2 / n
+      data2[idx + 3] = 0xff * (as[(as.length - 1) / 2] - a0) / (0xff - a0)
+    }
+  }
+  let xmin = width, xmax = 0, ymin = height, ymax = 0
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = dataIndex(x, y)
+      if (data[idx + 3] === 255) {
+        xmin = Math.min(xmin, x)
+        xmax = Math.max(xmax, x)
+        ymin = Math.min(ymin, y)
+        ymax = Math.max(ymax, y)
+      } else {
+        prepare(x, y, data)
+      }
+    }
+  }
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = dataIndex(x, y)
+      if (data[idx + 3] !== 255) set(x, y, data, imgdata2.data)
+    }
+  }
+  canvas.width = xmax - xmin + 1 + 2 * offset
+  canvas.height = ymax - ymin + 1 + 2 * offset
+  ctx.putImageData(imgdata2, -xmin + offset, -ymin + offset)
+  document.body.replaceChild(canvas, img)
+  canvas.style.padding = '16px'
+  canvas.style.background = 'linear-gradient(45deg, #000, #fff)'
+}
+</script>
