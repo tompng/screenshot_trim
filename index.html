@@ -38,7 +38,7 @@ function processFile(file) {
   img.src = url
   img.decode().then(() => {
     URL.revokeObjectURL(url)
-    convert(img, 4)
+    convert(img)
   })
   document.body.appendChild(img)
 }
